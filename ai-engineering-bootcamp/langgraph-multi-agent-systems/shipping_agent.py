@@ -15,8 +15,8 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 # --- Tools ---
@@ -46,8 +46,8 @@ def get_estimated_delivery(order_id: str) -> dict:
 # --- LangGraph Agent ---
 # ADK equivalent: Agent(name=..., tools=[...])
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-llm = ChatGoogleGenerativeAI(model=MODEL)
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+llm = ChatOpenAI(model=MODEL, temperature=0)
 
 shipping_react_agent = create_react_agent(
     llm,
@@ -64,8 +64,18 @@ app = FastAPI(title="Shipping Agent", description="LangGraph shipping agent serv
 class InvokeRequest(BaseModel):
     message: str
 
+class TraceStep(BaseModel):
+    author: str = "shipping_agent"
+    type: str  # tool_call | tool_response | text
+    tool: str | None = None
+    args: dict | None = None
+    result: str | None = None
+    text: str | None = None
+
 class InvokeResponse(BaseModel):
     response: str
+    trace: list[TraceStep] = []
+
 
 @app.get("/.well-known/agent-card.json")
 def agent_card():
@@ -77,13 +87,58 @@ def agent_card():
         "skills": ["get_shipping_status", "get_estimated_delivery"],
     }
 
+def _message_text(content) -> str:
+    """Normalize model content (str or list of parts) to a plain string."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+            elif hasattr(part, "text"):
+                parts.append(getattr(part, "text") or "")
+        return "\n".join(p for p in parts if p)
+    return str(content)
+
+
+def _build_trace(messages: list) -> list[TraceStep]:
+    """Extract tool calls / results / final text for UI display."""
+    steps: list[TraceStep] = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            continue
+        if isinstance(msg, AIMessage):
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                for tc in tool_calls:
+                    steps.append(TraceStep(
+                        type="tool_call",
+                        tool=tc["name"],
+                        args=tc.get("args", {}),
+                    ))
+            elif msg.content:
+                steps.append(TraceStep(type="text", text=_message_text(msg.content)))
+        elif isinstance(msg, ToolMessage):
+            steps.append(TraceStep(
+                type="tool_response",
+                tool=msg.name or "tool",
+                result=str(msg.content)[:800],
+            ))
+    return steps
+
+
 @app.post("/invoke", response_model=InvokeResponse)
 async def invoke(req: InvokeRequest):
     """Run the shipping agent with the given message and return its response."""
     result = shipping_react_agent.invoke({"messages": [HumanMessage(content=req.message)]})
-    for msg in reversed(result["messages"]):
+    messages = result["messages"]
+    trace = _build_trace(messages)
+    for msg in reversed(messages):
         if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
-            return InvokeResponse(response=msg.content)
-    return InvokeResponse(response="(no response)")
+            return InvokeResponse(response=_message_text(msg.content), trace=trace)
+    return InvokeResponse(response="(no response)", trace=trace)
 
 # Run with: uvicorn shipping_agent:app --port 8001

@@ -17,8 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dotenv import load_dotenv
 load_dotenv()
 
-from langfuse.callback import CallbackHandler as LangfuseHandler
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langfuse.langchain import CallbackHandler as LangfuseHandler
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import create_react_agent
@@ -27,8 +27,8 @@ from pydantic import BaseModel
 from typing import Literal
 import httpx
 
-MODEL = "gemini-2.5-flash"
-llm = ChatGoogleGenerativeAI(model=MODEL)
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+llm = ChatOpenAI(model=MODEL, temperature=0)
 
 # --- Tools ---
 
@@ -96,7 +96,11 @@ def _make_supervisor(router_model, prompt, options):
             [SystemMessage(content=prompt)] + state["messages"]
         )
         goto = "__end__" if response.next == "FINISH" else response.next
-        return Command(goto=goto)
+        note = "Conversation finished." if goto == "__end__" else f"Routing to {goto}"
+        return Command(
+            goto=goto,
+            update={"messages": [AIMessage(content=note, name="supervisor")]},
+        )
     return supervisor_node
 
 def _make_specialist(tools, system_prompt):
@@ -176,17 +180,51 @@ def build_demo3_graph(token, ref):
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post("http://localhost:8001/invoke", json={"message": user_message})
-                text = resp.json()["response"]
+                data = resp.json()
+                text = data["response"]
+                remote_trace = data.get("trace") or []
         except Exception as e:
             text = f"Shipping agent unavailable: {e}"
-        return {"messages": [AIMessage(content=text, name="shipping_agent")]}
+            remote_trace = []
+
+        # Rebuild remote tool steps so Agent Trace shows them in the UI
+        new_messages = []
+        pending_tool_call_id = None
+        for i, step in enumerate(remote_trace):
+            step_type = step.get("type")
+            if step_type == "tool_call":
+                pending_tool_call_id = f"ship_tc_{i}"
+                new_messages.append(AIMessage(
+                    content="",
+                    name="shipping_agent",
+                    tool_calls=[{
+                        "id": pending_tool_call_id,
+                        "name": step.get("tool") or "tool",
+                        "args": step.get("args") or {},
+                    }],
+                ))
+            elif step_type == "tool_response":
+                new_messages.append(ToolMessage(
+                    content=step.get("result") or "",
+                    name=step.get("tool") or "tool",
+                    tool_call_id=pending_tool_call_id or f"ship_tc_{i}",
+                ))
+            elif step_type == "text" and step.get("text"):
+                new_messages.append(AIMessage(content=step["text"], name="shipping_agent"))
+        if not new_messages:
+            new_messages = [AIMessage(content=text, name="shipping_agent")]
+        return {"messages": new_messages}
 
     def supervisor_node(state: MessagesState) -> Command:
         response = llm.with_structured_output(FullRouter).invoke(
             [SystemMessage(content=FULL_SUPERVISOR_PROMPT)] + state["messages"]
         )
         goto = "__end__" if response.next == "FINISH" else response.next
-        return Command(goto=goto)
+        note = "Conversation finished." if goto == "__end__" else f"Routing to {goto}"
+        return Command(
+            goto=goto,
+            update={"messages": [AIMessage(content=note, name="supervisor")]},
+        )
 
     builder = StateGraph(MessagesState)
     builder.add_node("supervisor", supervisor_node)
@@ -307,7 +345,7 @@ def render_trace(trace: list):
 st.set_page_config(page_title="LangGraph Multi-Agent Systems", layout="wide")
 st.markdown("<style>.block-container{padding-top:1.5rem;}</style>", unsafe_allow_html=True)
 
-api_key = os.getenv("GOOGLE_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY")
 supa_token = os.getenv("SUPABASE_ACCESS_TOKEN")
 supa_ref = os.getenv("SUPABASE_PROJECT_REF")
 shipping_ok = check_shipping_agent()
@@ -321,9 +359,9 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### Status")
     if api_key:
-        st.success("Google API Key")
+        st.success("OpenAI API Key")
     else:
-        st.error("Google API Key -- not set")
+        st.error("OpenAI API Key -- not set")
     if supa_token and supa_ref:
         st.success("Supabase")
     else:
@@ -425,7 +463,7 @@ def supervisor_node(state) -> Command:
         """, language="python")
 
     if not api_key:
-        st.error("Set GOOGLE_API_KEY in .env"); st.stop()
+        st.error("Set OPENAI_API_KEY in .env"); st.stop()
 
     st.markdown("---")
     col1, col2, col3 = st.columns(3)
@@ -482,7 +520,7 @@ agent = create_react_agent(llm, tools=tools)
         """, language="python")
 
     if not api_key:
-        st.error("Set GOOGLE_API_KEY in .env"); st.stop()
+        st.error("Set OPENAI_API_KEY in .env"); st.stop()
     if not supa_token:
         st.error("Set SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF in .env"); st.stop()
 
@@ -545,7 +583,7 @@ async def shipping_node(state):
         """, language="python")
 
     if not api_key:
-        st.error("Set GOOGLE_API_KEY in .env"); st.stop()
+        st.error("Set OPENAI_API_KEY in .env"); st.stop()
     if not supa_token:
         st.warning("Supabase not configured -- billing won't work.")
     if not shipping_ok:

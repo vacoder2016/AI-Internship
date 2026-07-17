@@ -15,14 +15,14 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command
 
-MODEL = "gemini-2.5-flash"
-llm = ChatGoogleGenerativeAI(model=MODEL)
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+llm = ChatOpenAI(model=MODEL, temperature=0)
 
 # --- Tools ---
 

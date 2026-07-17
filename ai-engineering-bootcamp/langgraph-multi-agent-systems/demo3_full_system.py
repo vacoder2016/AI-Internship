@@ -19,8 +19,8 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from langfuse.callback import CallbackHandler as LangfuseHandler
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langfuse.langchain import CallbackHandler as LangfuseHandler
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -28,14 +28,14 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command
 import httpx
 
-MODEL = "gemini-2.5-flash"
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 TOKEN = os.getenv("SUPABASE_ACCESS_TOKEN", "")
 PROJECT_REF = os.getenv("SUPABASE_PROJECT_REF", "")
 
 if not TOKEN:
     print("WARNING: SUPABASE_ACCESS_TOKEN not set -- billing agent won't work.")
 
-llm = ChatGoogleGenerativeAI(model=MODEL)
+llm = ChatOpenAI(model=MODEL, temperature=0)
 
 # --- Layer 1: Technical Agent (local tools) ---
 # ADK equivalent: Agent(name="technical_agent", tools=[...])

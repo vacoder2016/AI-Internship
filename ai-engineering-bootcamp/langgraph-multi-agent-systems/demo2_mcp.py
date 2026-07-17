@@ -15,19 +15,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 
-MODEL = "gemini-2.5-flash"
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 TOKEN = os.getenv("SUPABASE_ACCESS_TOKEN", "")
 PROJECT_REF = os.getenv("SUPABASE_PROJECT_REF", "")
 
 if not TOKEN:
     sys.exit("Set SUPABASE_ACCESS_TOKEN in .env (https://supabase.com/dashboard/account/tokens)")
 
-llm = ChatGoogleGenerativeAI(model=MODEL)
+llm = ChatOpenAI(model=MODEL, temperature=0)
 
 # --- MCP Client (launches Supabase MCP server as subprocess) ---
 # ADK equivalent: McpToolset(connection_params=StdioConnectionParams(...))
