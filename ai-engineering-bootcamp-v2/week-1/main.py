@@ -1,20 +1,17 @@
 """Week 1 live demo — five stages in one file, built up live in class."""
 
 import time
-from pathlib import Path
 
-from dotenv import load_dotenv
+from load_env import load_course_env, make_openai_client
 from fastapi import FastAPI, HTTPException
-from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError
 
-# Load .env from this folder so the key is found regardless of shell working directory.
-_ENV_PATH = Path(__file__).resolve().parent / ".env"
-load_dotenv(_ENV_PATH)
+# Load .env from this folder, then fall back to the course root if needed.
+load_course_env()
 
 # Reuse one client so TLS handshakes are not repeated on every request.
 app = FastAPI()
-client = OpenAI()  # Reads OPENAI_API_KEY from the environment; never hardcode keys.
+client = make_openai_client()
 
 # Stage 4 default — strong general model; swap at request time for the live demo.
 DEFAULT_MODEL = "gpt-4o"

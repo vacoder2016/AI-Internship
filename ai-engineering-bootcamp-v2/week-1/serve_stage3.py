@@ -5,15 +5,14 @@ Run: uvicorn serve_stage3:app --port 8000 --reload
 
 from pathlib import Path
 
-from dotenv import load_dotenv
+from load_env import load_course_env, make_openai_client
 from fastapi import FastAPI, HTTPException
-from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+load_course_env()
 
 app = FastAPI()
-client = OpenAI()
+client = make_openai_client()
 
 
 class Answer(BaseModel):
