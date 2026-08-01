@@ -10,3 +10,6 @@ __pycache__/
 venv/
 .venv/
 env/
+
+# Local docs — keep NewtonsLaws.pdf in repo; ignore large extras
+Electromagnetics.pdf

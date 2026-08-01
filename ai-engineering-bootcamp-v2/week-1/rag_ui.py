@@ -156,6 +156,12 @@ with ask_tab:
     st.subheader("Ask a question")
     st.markdown("Send a question to `POST /ask`. Citations come from `retrieved_chunk_ids`.")
 
+    document_id_filter = st.text_input(
+        "document_id filter (optional)",
+        value="newtons-laws",
+        help="Only retrieve chunks from this document. Leave blank to search all docs.",
+        key="ask_document_id",
+    )
     question = st.text_input(
         "question",
         value="What is Newton's second law?",
@@ -166,8 +172,11 @@ with ask_tab:
         if not question.strip():
             st.error("question is required.")
         else:
+            payload: dict = {"question": question.strip()}
+            if document_id_filter.strip():
+                payload["document_id"] = document_id_filter.strip()
             with st.spinner("Calling POST /ask…"):
-                status, data = api_post(base_url, "/ask", {"question": question.strip()})
+                status, data = api_post(base_url, "/ask", payload)
             render_ask_result(status, data)
 
     st.markdown("**Try these for Maven proof**")

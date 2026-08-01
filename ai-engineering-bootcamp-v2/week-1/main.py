@@ -53,6 +53,7 @@ class AskRequest(BaseModel):
     question: str
     force_bad: bool = False  # Stage 3 demo knob — first attempt breaks schema on purpose.
     model: str | None = None  # Stage 4 — optional override to swap models live.
+    document_id: str | None = None  # Optional metadata filter — search one doc only.
 
 
 class AskResponse(BaseModel):
@@ -64,6 +65,7 @@ class AskResponse(BaseModel):
     latency_ms: int
     cost_usd: float
     retrieved_chunk_ids: list[str] = Field(default_factory=list)
+    document_id_filter: str | None = None
 
 
 class IngestRequest(BaseModel):
@@ -91,6 +93,7 @@ class RetrieveChunk(BaseModel):
 class RetrieveResponse(BaseModel):
     query: str
     top_k: int
+    document_id_filter: str | None = None
     results: list[RetrieveChunk]
 
 
@@ -202,9 +205,14 @@ def ask(body: AskRequest) -> AskResponse:
 
     model = body.model or DEFAULT_MODEL
     last_error: str | None = None
+    document_id_filter = body.document_id.strip() if body.document_id else None
 
     try:
-        matches = query_text(question, top_k=DEFAULT_RETRIEVE_TOP_K)
+        matches = query_text(
+            question,
+            top_k=DEFAULT_RETRIEVE_TOP_K,
+            document_id=document_id_filter,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -248,6 +256,7 @@ def ask(body: AskRequest) -> AskResponse:
                 latency_ms=latency_ms,
                 cost_usd=round(cost_usd, 6),
                 retrieved_chunk_ids=retrieved_chunk_ids,
+                document_id_filter=document_id_filter,
             )
         except (ValidationError, ValueError) as exc:
             last_error = str(exc)
@@ -271,19 +280,25 @@ def pinecone_health():
 def debug_retrieve(
     q: str = Query(..., min_length=1, description="Question or search phrase to embed"),
     top_k: int = Query(5, ge=1, le=20, description="Number of nearest chunks to return"),
+    document_id: str | None = Query(
+        None, description="Optional metadata filter — only search chunks from this document_id"
+    ),
 ) -> RetrieveResponse:
     """Embed a query and return Pinecone matches — no LLM call.
 
     Example:
         curl -s "http://127.0.0.1:8000/debug/retrieve?q=What%20is%20Newton%27s%20second%20law"
+        curl -s "http://127.0.0.1:8000/debug/retrieve?q=force&document_id=newtons-laws"
     """
 
     query = q.strip()
     if not query:
         raise HTTPException(status_code=400, detail="q must not be empty")
 
+    document_id_filter = document_id.strip() if document_id else None
+
     try:
-        matches = query_text(query, top_k=top_k)
+        matches = query_text(query, top_k=top_k, document_id=document_id_filter)
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -300,7 +315,12 @@ def debug_retrieve(
         for match in matches
     ]
 
-    return RetrieveResponse(query=query, top_k=top_k, results=results)
+    return RetrieveResponse(
+        query=query,
+        top_k=top_k,
+        document_id_filter=document_id_filter,
+        results=results,
+    )
 
 
 @app.post("/ingest")

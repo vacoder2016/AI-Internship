@@ -114,18 +114,28 @@ def ingest_document(text: str, document_id: str, source: str | None = None) -> i
     return upsert_texts(items)
 
 
-def query_text(text: str, top_k: int = 3) -> list[dict[str, Any]]:
+def query_text(
+    text: str,
+    top_k: int = 3,
+    *,
+    document_id: str | None = None,
+) -> list[dict[str, Any]]:
     """Embed a query string and return the nearest neighbors from Pinecone."""
 
     settings = get_pinecone_settings()
     vector = embed_texts([text])[0]
     index = get_pinecone_index()
-    response = index.query(
-        vector=vector,
-        top_k=top_k,
-        namespace=settings.namespace,
-        include_metadata=True,
-    )
+
+    query_kwargs: dict[str, Any] = {
+        "vector": vector,
+        "top_k": top_k,
+        "namespace": settings.namespace,
+        "include_metadata": True,
+    }
+    if document_id:
+        query_kwargs["filter"] = {"document_id": {"$eq": document_id}}
+
+    response = index.query(**query_kwargs)
     return [
         {"id": match.id, "score": match.score, "metadata": match.metadata or {}}
         for match in response.matches

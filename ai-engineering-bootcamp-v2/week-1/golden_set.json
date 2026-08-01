@@ -1,0 +1,8 @@
+[
+  {"question": "What is Newton's second law?", "expected": "Force equals mass times acceleration (F=ma)."},
+  {"question": "What is Newton's first law?", "expected": "An object stays at rest or in uniform motion unless acted on by a net force."},
+  {"question": "What is inertia?", "expected": "Resistance of an object to changes in its state of motion."},
+  {"question": "What is the unit of force in SI?", "expected": "The newton (N)."},
+  {"question": "What is Newton's third law?", "expected": "For every action there is an equal and opposite reaction."},
+  {"question": "How do you bake a chocolate cake?", "expected": "Refusal — not in docs."}
+]
