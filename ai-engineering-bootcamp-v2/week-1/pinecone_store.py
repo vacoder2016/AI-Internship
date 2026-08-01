@@ -5,10 +5,13 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from load_env import make_openai_client
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DIMENSION = 1536
+DEFAULT_CHUNK_SIZE = 800
+DEFAULT_CHUNK_OVERLAP = 100
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,8 @@ class PineconeSettings:
     index_name: str
     namespace: str
     embedding_model: str
+    chunk_size: int
+    chunk_overlap: int
 
 
 def get_pinecone_settings() -> PineconeSettings:
@@ -32,6 +37,8 @@ def get_pinecone_settings() -> PineconeSettings:
         index_name=index_name,
         namespace=os.getenv("PINECONE_NAMESPACE", "").strip(),
         embedding_model=os.getenv("OPENAI_EMBEDDING_MODEL", EMBEDDING_MODEL).strip(),
+        chunk_size=int(os.getenv("INGEST_CHUNK_SIZE", str(DEFAULT_CHUNK_SIZE))),
+        chunk_overlap=int(os.getenv("INGEST_CHUNK_OVERLAP", str(DEFAULT_CHUNK_OVERLAP))),
     )
 
 
@@ -73,6 +80,38 @@ def upsert_texts(items: list[tuple[str, str, dict[str, Any] | None]]) -> int:
     index = get_pinecone_index()
     result = index.upsert(vectors=vectors, namespace=settings.namespace)
     return int(result.upserted_count)
+
+
+def chunk_text(text: str) -> list[str]:
+    """Split document text into overlapping chunks using env-configured sizes."""
+
+    settings = get_pinecone_settings()
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+    )
+    return splitter.split_text(text)
+
+
+def ingest_document(text: str, document_id: str, source: str | None = None) -> int:
+    """Chunk, embed, and upsert a document into Pinecone."""
+
+    chunks = chunk_text(text)
+    if not chunks:
+        return 0
+
+    items: list[tuple[str, str, dict[str, Any] | None]] = []
+    for chunk_index, chunk in enumerate(chunks):
+        metadata: dict[str, Any] = {
+            "document_id": document_id,
+            "chunk_index": chunk_index,
+            "source": source or "",
+            "text": chunk,
+        }
+        vector_id = f"{document_id}::{chunk_index}"
+        items.append((vector_id, chunk, metadata))
+
+    return upsert_texts(items)
 
 
 def query_text(text: str, top_k: int = 3) -> list[dict[str, Any]]:
