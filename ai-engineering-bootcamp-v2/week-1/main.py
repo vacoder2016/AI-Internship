@@ -4,6 +4,7 @@ import time
 
 from load_env import load_course_env, make_openai_client
 from fastapi import FastAPI, HTTPException
+from pinecone_store import check_pinecone_health
 from pydantic import BaseModel, Field, ValidationError
 
 # Load .env from this folder, then fall back to the course root if needed.
@@ -154,3 +155,10 @@ def ask(body: AskRequest) -> AskResponse:
         status_code=502,
         detail=f"Model response failed schema validation after retry: {last_error}",
     )
+
+
+@app.get("/health/pinecone")
+def pinecone_health():
+    """Debug endpoint — confirms Pinecone env vars and index connectivity."""
+
+    return check_pinecone_health()

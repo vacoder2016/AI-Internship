@@ -74,7 +74,16 @@ def build_payload(
 
 def call_ask(base_url: str, payload: dict) -> tuple[int, dict | str]:
     try:
-        response = httpx.post(f"{base_url.rstrip('/')}/ask", json=payload, timeout=120.0)
+        client_kwargs: dict = {"timeout": 120.0}
+        if base_url.strip().lower().startswith("https://"):
+            import ssl
+
+            import truststore
+
+            client_kwargs["verify"] = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+        with httpx.Client(**client_kwargs) as client:
+            response = client.post(f"{base_url.rstrip('/')}/ask", json=payload)
         try:
             return response.status_code, response.json()
         except json.JSONDecodeError:
@@ -83,6 +92,24 @@ def call_ask(base_url: str, payload: dict) -> tuple[int, dict | str]:
         return 0, {"error": f"Cannot reach {base_url} — start the stage server first."}
     except httpx.HTTPError as exc:
         return 0, {"error": str(exc)}
+
+
+def render_key_fields(data: dict) -> None:
+    """Surface the Maven proof fields when the API returns them."""
+    if not isinstance(data, dict) or "answer" not in data:
+        return
+
+    answer = data["answer"]
+    st.markdown("**Key fields**")
+    if isinstance(answer, dict):
+        st.write("**answer:**", answer.get("answer", ""))
+    else:
+        st.write("**answer:**", answer)
+
+    if "tokens_used" in data:
+        st.write("**tokens_used:**", data["tokens_used"])
+    if "cost_usd" in data:
+        st.write("**cost_usd:**", data["cost_usd"])
 
 
 def render_curl(base_url: str, payload: dict) -> str:
@@ -107,7 +134,11 @@ st.set_page_config(page_title="Week 1 /ask Demo", layout="wide")
 st.title("Week 1 — `/ask` Demo Runner")
 st.caption("One page, five sections. Copy the commands below, start the matching server, then hit **Run test**.")
 
-base_url = st.sidebar.text_input("API base URL", "http://127.0.0.1:8000")
+base_url = st.sidebar.text_input(
+    "API base URL",
+    "http://127.0.0.1:8000",
+    help="Local: http://127.0.0.1:8000 — Live: https://ai-internship-cub8.onrender.com",
+)
 
 st.sidebar.markdown("### Run this page")
 st.sidebar.code(
@@ -159,6 +190,8 @@ for tab, stage in zip(tabs, STAGES):
                 status, data = call_ask(base_url, payload)
             if status:
                 st.markdown(f"**HTTP {status}**")
+            if isinstance(data, dict):
+                render_key_fields(data)
             st.json(data)
 
 st.sidebar.divider()
